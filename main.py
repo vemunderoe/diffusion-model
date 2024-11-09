@@ -1,38 +1,33 @@
-import pickle
-import os
-import numpy as np
-import matplotlib.pyplot as plt
+import torch
+import logging
+from noise import cosine_beta_schedule, add_noise_to_images
+from curser import run_denoising
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
 
-def unpickle(file):
-  with open(file, 'rb') as fo:
-    dict = pickle.load(fo, encoding='bytes')
-  return dict
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
-def load_label_names():
-  meta = unpickle(os.path.join('cifar-10', 'batches.meta'))
-  label_names = meta[b'label_names']
-  return [label.decode('utf-8') for label in label_names]
+# Set device
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-label_names = load_label_names()
+# Load dataset
+transform = transforms.Compose([transforms.ToTensor()])
+mnist_dataset = datasets.MNIST(root='./', train=True, download=True, transform=transform)
+data_loader = DataLoader(mnist_dataset, batch_size=32, shuffle=True)
 
-def load_data():
-  data = []
-  labels = []
-  for i in range(1, 6):
-    batch = unpickle(os.path.join('cifar-10', 'data_batch_' + str(i)))
-    for img, label in zip(batch[b'data'], batch[b'labels']):
-      data.append(img)
-      labels.append(label)
-  data = np.array(data)
-  labels = np.array(labels)
-  return data, labels
+# Set parameters
+num_diffusion_steps = 1000
+beta_schedule = cosine_beta_schedule(num_diffusion_steps)
 
-data, labels = load_data()
+# Precompute terms for noising and denoising
+alpha = (1 - beta_schedule).to(device)
+alpha_bar = torch.cumprod(alpha, dim=0).to(device)
+alpha_bar_sqrt = torch.sqrt(alpha_bar).to(device)
+one_minus_alpha_bar_sqrt = torch.sqrt(1.0 - alpha_bar).to(device)
 
-# Display the first 10 images
-for i in range(10):
-  image = data[i].reshape(3, 32, 32).transpose(1, 2, 0)
-  plt.figure()
-  plt.imshow(image)
-  plt.title(f"Label: {label_names[labels[i]]}")
-  plt.show()
+# Add noise to images
+original_images, noisy_images = add_noise_to_images(data_loader, alpha_bar_sqrt, one_minus_alpha_bar_sqrt, num_diffusion_steps, device=device)
+
+# Run denoising
+run_denoising(alpha, alpha_bar, noisy_images, data_loader, learning_rate=5e-4, num_epochs=10)
