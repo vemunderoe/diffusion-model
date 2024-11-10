@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 import logging
 import matplotlib.pyplot as plt
-from noise import q_sample
+from noise import q_sample, add_noise_to_images
 
 # Check for CUDA availability
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -54,43 +54,73 @@ class DenoisingProcess:
 # Training function
 def train(model, data_loader, alpha, alpha_bar, device, learning_rate=1e-3, num_epochs=5):
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    criterion = nn.MSELoss()
     model.train()
     
     for epoch in range(num_epochs):
-        for x_0, _ in data_loader:
-            x_0 = x_0.to(device)
+        for batch in data_loader:
+            # Add noise directly within each batch
+            x_0, x_t = add_noise_to_images(
+                batch, 
+                torch.sqrt(alpha_bar), 
+                torch.sqrt(1.0 - alpha_bar),
+                num_diffusion_steps=1000,
+                device=device
+            )
+            
             t = torch.randint(0, len(alpha), (x_0.size(0),)).long().to(device)
-            epsilon = torch.randn_like(x_0).to(device)  # Generate epsilon separately
-            x_t = q_sample(x_0, t, torch.sqrt(alpha_bar), torch.sqrt(1.0 - alpha_bar), device)
+            epsilon = torch.randn_like(x_0).to(device)
             
             epsilon_pred = model(x_t)
-            loss = criterion(epsilon_pred, epsilon)
+            loss = nn.MSELoss()(epsilon_pred, epsilon)  # Simplified loss calculation
             
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            
+            # Clear GPU memory after each batch
+            del x_0, x_t, epsilon, epsilon_pred, loss
             torch.cuda.empty_cache()
-
         
-        logging.info(f"Epoch {epoch + 1}/{num_epochs}, Loss: {loss.item()}")
+        logging.info(f"Epoch {epoch + 1}/{num_epochs} completed.")
 
 
 
 # Run training and denoising
-def run_denoising(alpha, alpha_bar, noisy_images, data_loader, timesteps=1000, learning_rate=1e-3, batch_size=32, num_epochs=5):
-    model = NoisePredictor().to(device)
+def run_denoising(alpha, alpha_bar, data_loader, model, num_samples=4):
+    model.eval()  # Set model to evaluation mode
     denoiser = DenoisingProcess(model, alpha, alpha_bar, device)
     
-    train(model, data_loader, alpha, alpha_bar, device, learning_rate, num_epochs)
+    # Get just one small batch
+    batch, _ = next(iter(data_loader))
+    # Take only the first few samples
+    x_t = batch[:num_samples].to(device)
     
-    # Perform denoising
-    x_denoised = denoiser.reverse_diffusion(noisy_images)
-    
-    # Visualize the denoised result
-    plt.imshow(x_denoised[0].squeeze().detach().cpu().numpy(), cmap='gray')
-    plt.title("Denoised Image")
-    plt.axis('off')
-    plt.savefig('denoised_images.png')
-    plt.close()
-    logging.info("Saved denoised images to 'denoised_images.png'.")
+    with torch.no_grad():  # Disable gradient computation
+        try:
+            x_denoised = denoiser.reverse_diffusion(x_t)
+            
+            # Create a figure with subplots
+            fig, axes = plt.subplots(1, num_samples, figsize=(num_samples * 3, 3))
+            for i in range(num_samples):
+                if num_samples == 1:
+                    ax = axes
+                else:
+                    ax = axes[i]
+                ax.imshow(x_denoised[i].squeeze().cpu().numpy(), cmap='gray')
+                ax.axis('off')
+            
+            plt.savefig('denoised_samples.png')
+            plt.close()
+            
+            # Clear memory
+            del x_denoised
+            torch.cuda.empty_cache()
+            
+        except Exception as e:
+            logging.error(f"Error during denoising: {str(e)}")
+        finally:
+            # Ensure memory is cleared
+            del x_t
+            torch.cuda.empty_cache()
+
+    logging.info("Denoising completed and images saved.")

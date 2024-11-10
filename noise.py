@@ -28,23 +28,16 @@ def q_sample(x_0, t, alpha_bar_sqrt, one_minus_alpha_bar_sqrt, device):
 
 
 # Add noise to images and return the original and noisy images
-def add_noise_to_images(data_loader, alpha_bar_sqrt, one_minus_alpha_bar_sqrt, num_diffusion_steps, device=None):
-    original_images = []
-    noisy_images = []
+# In noise.py
+def add_noise_to_images(batch, alpha_bar_sqrt, one_minus_alpha_bar_sqrt, num_diffusion_steps, device=None):
+    x_0, _ = batch  
+    x_0 = x_0.to(device)
+    t = torch.randint(low=0, 
+                     high=num_diffusion_steps, 
+                     size=(x_0.size(0),),  # size should be a separate argument
+                     device=device).long()
+    x_t = q_sample(x_0, t, alpha_bar_sqrt, one_minus_alpha_bar_sqrt, device)
     
-    for batch in data_loader:
-        x_0, _ = batch  
-        x_0 = x_0.to(device)
-        t = torch.randint(0, num_diffusion_steps, (x_0.size(0),)).long().to(device)
-        x_t = q_sample(x_0, t, alpha_bar_sqrt, one_minus_alpha_bar_sqrt, device)
-        
-        # Accumulate the original and noisy images
-        original_images.append(x_0)
-        noisy_images.append(x_t)
-    
-    # Concatenate the accumulated batches
-    original_images = torch.cat(original_images, dim=0)
-    noisy_images = torch.cat(noisy_images, dim=0)
-    
-    return original_images, noisy_images
+    return x_0, x_t
+
 
