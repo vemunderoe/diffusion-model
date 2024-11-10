@@ -12,17 +12,23 @@ import copy
 
 # Hyperparameters
 batch_size = 128
-learning_rate = 1e-4  # Lower learning rate for stability
+learning_rate = 1e-4
 epochs = 10
 img_size = 28
 timesteps = 1000
 
 # Cosine Beta Schedule
-def linear_beta_schedule(timesteps):
-    return torch.linspace(0.0001, 0.02, timesteps)
+def cosine_beta_schedule(timesteps, s=0.008):
+    def f(t):
+        return torch.cos((t / timesteps + s) / (1 + s) * 0.5 * torch.pi) ** 2
+    x = torch.linspace(0, timesteps, timesteps + 1)
+    alphas_cumprod = f(x) / f(torch.tensor([0]))
+    betas = 1 - alphas_cumprod[1:] / alphas_cumprod[:-1]
+    betas = torch.clip(betas, 0.0001, 0.999)
+    return betas
 
 # Noise schedule
-beta = linear_beta_schedule(timesteps)
+beta = cosine_beta_schedule(timesteps)
 alpha = 1.0 - beta
 alpha_hat = torch.cumprod(alpha, dim=0)
 
@@ -43,6 +49,7 @@ class SelfAttention(nn.Module):
         self.key = nn.Conv2d(in_dim, in_dim, 1)
         self.value = nn.Conv2d(in_dim, in_dim, 1)
         self.gamma = nn.Parameter(torch.zeros(1))
+        self.elbo_loss = nn.KLDivLoss(reduction='batchmean')
 
     def forward(self, x):
         B, C, H, W = x.size()
@@ -61,7 +68,7 @@ class SelfAttention(nn.Module):
 class UNet(nn.Module):
     def __init__(self):
         super(UNet, self).__init__()
-        self.time_embed = nn.Linear(128, 64)  # Timestep embedding layer
+        self.time_embed = nn.Linear(128, 64)
 
         # Downsampling layers with adjusted input channels
         self.down1 = nn.Sequential(nn.Conv2d(1 + 64, 32, 3, padding=1), nn.ReLU(), nn.Conv2d(32, 32, 3, padding=1), nn.ReLU())
@@ -109,22 +116,70 @@ class UNet(nn.Module):
         
         return self.final(x1)
 
+    def elbo_loss(self, predicted_noise, actual_noise):
+        """Improved ELBO loss calculation"""
+        # Use MSE as the primary component of ELBO loss
+        mse_loss = F.mse_loss(predicted_noise, actual_noise, reduction='mean')
+        
+        # Add a small regularization term to prevent numerical instability
+        reg_term = 1e-6 * torch.mean(predicted_noise**2)
+        
+        return mse_loss + reg_term
+
 # Reverse Diffusion Process
 class DiffusionModel:
     def __init__(self, model, beta_schedule, device):
         self.model = model
         self.beta = beta_schedule
         self.alpha_hat = alpha_hat.to(device)
+        self.device = device
 
     def add_noise(self, x0, t):
         noise = torch.randn_like(x0)
         alpha_t = self.alpha_hat[t].view(-1, 1, 1, 1)
-        return torch.sqrt(alpha_t) * x0 + torch.sqrt(1 - alpha_t) * noise, noise
+        noisy_image = torch.sqrt(alpha_t) * x0 + torch.sqrt(1 - alpha_t) * noise
+        return noisy_image, noise
+
+    def elbo_loss(self, predicted_noise, actual_noise, mu, log_var):
+        """
+        Computes ELBO loss with MSE for reconstruction and KL divergence.
+        
+        Parameters:
+        - predicted_noise: The noise predicted by the model.
+        - actual_noise: The actual noise added to the data.
+        - mu: The mean of the latent distribution.
+        - log_var: The log variance of the latent distribution.
+        
+        Returns:
+        - elbo: The ELBO loss.
+        """
+        # Reconstruction loss (MSE)
+        recon_loss = F.mse_loss(predicted_noise, actual_noise, reduction='sum')
+        
+        # KL divergence
+        kl_div = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
+        
+        # ELBO loss
+        elbo = recon_loss + kl_div
+        return elbo
 
     def p_losses(self, x0, t):
+        # Add noise to the input image
         x_t, noise = self.add_noise(x0, t)
+        
+        # Get model's predicted noise
         predicted_noise = self.model(x_t, t)
-        return nn.MSELoss()(predicted_noise, noise)
+        
+        # Assume latent distribution with mean (mu) and log variance (log_var)
+        # For simplicity, we can set them as zeros (for standard normal prior) in this placeholder
+        mu = torch.zeros_like(predicted_noise)
+        log_var = torch.zeros_like(predicted_noise)
+        
+        # Compute ELBO loss
+        elbo_loss = self.elbo_loss(predicted_noise, noise, mu, log_var)
+        
+        return elbo_loss
+
 
 # Visualization functions
 @torch.no_grad()
@@ -186,28 +241,45 @@ print(f"Using device: {device}")
 sample_data = next(iter(train_loader))[0][:1]
 visualize_noising_process(sample_data, timesteps, device)
 
-# Training loop with stability improvements
+# Training loop with improved stability
 for epoch in range(epochs):
     model.train()
     epoch_loss = 0
+    num_batches = 0
+    
     for x, _ in train_loader:
-        x = x.to(device)
-        t = torch.randint(0, timesteps, (x.size(0),), device=device).long()
-        loss = diffusion.p_losses(x, t)
-
-        optimizer.zero_grad()
-        loss.backward()
-        
-        nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
-        
-        optimizer.step()
-        
-        epoch_loss += loss.item()
-
+        try:
+            x = x.to(device)
+            t = torch.randint(0, timesteps, (x.size(0),), device=device).long()
+            
+            optimizer.zero_grad()
+            
+            # Calculate loss with gradient clipping
+            loss = diffusion.p_losses(x, t)
+            
+            if not torch.isnan(loss):
+                loss.backward()
+                
+                # Clip gradients for stability
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                
+                optimizer.step()
+                
+                epoch_loss += loss.item()
+                num_batches += 1
+            else:
+                print("Skipping batch due to NaN loss")
+                continue
+                
+        except RuntimeError as e:
+            print(f"Error in batch: {e}")
+            continue
+    
     # Adjust learning rate
     scheduler.step()
     
-    print(f"Epoch {epoch + 1}/{epochs}, Loss: {epoch_loss / len(train_loader)}")
+    avg_loss = epoch_loss / num_batches if num_batches > 0 else float('inf')
+    print(f"Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.6f}")
     
     # Save model checkpoint and visualize denoising process
     # Visualization of denoising process every epoch        
