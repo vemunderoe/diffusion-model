@@ -11,11 +11,11 @@ import math
 import copy
 
 # Hyperparameters
-batch_size = 256
-learning_rate = 1e-5  # Lower learning rate for stability
-epochs = 100
+batch_size = 128
+learning_rate = 1e-4  # Lower learning rate for stability
+epochs = 10
 img_size = 28
-timesteps = 200
+timesteps = 1000
 
 # Cosine Beta Schedule
 def linear_beta_schedule(timesteps):
@@ -127,6 +127,7 @@ class DiffusionModel:
         return nn.MSELoss()(predicted_noise, noise)
 
 # Visualization functions
+@torch.no_grad()
 def visualize_noising_process(x0, timesteps, device):
     fig, axes = plt.subplots(1, 10, figsize=(20, 2))
     x = x0.to(device)
@@ -143,6 +144,7 @@ def visualize_noising_process(x0, timesteps, device):
     plt.savefig("visualizations/noising_process.png")
     plt.close(fig)
 
+@torch.no_grad()
 def visualize_denoising_process(model, epoch, x0, timesteps, device):
     fig, axes = plt.subplots(1, 10, figsize=(20, 2))
     x = x0.to(device)
@@ -207,11 +209,10 @@ for epoch in range(epochs):
     
     print(f"Epoch {epoch + 1}/{epochs}, Loss: {epoch_loss / len(train_loader)}")
     
-    # Save model checkpoint and visualize denoising process every 5 epochs
-    if (epoch + 1) % 5 == 0:
-        # Visualization of denoising process every epoch        
-        sample_data = next(iter(train_loader))[0][:8]
-        visualize_denoising_process(model, epoch + 1, sample_data, timesteps, device)
+    # Save model checkpoint and visualize denoising process
+    # Visualization of denoising process every epoch        
+    sample_data = next(iter(train_loader))[0][:8]
+    visualize_denoising_process(model, epoch + 1, sample_data, timesteps, device)
 
 
 os.makedirs("checkpoints", exist_ok=True)
