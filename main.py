@@ -1,3 +1,27 @@
+"""
+Main script for training and running a Denoising Diffusion Probabilistic Model (DDPM) on MNIST.
+
+This script orchestrates the entire diffusion process by:
+1. Setting up the training parameters and device configuration
+2. Computing the noise schedule using a cosine beta schedule
+3. Loading and preparing the MNIST dataset
+4. Initializing and training the noise prediction model
+5. Running the denoising process to generate samples
+
+Key Parameters:
+    num_diffusion_steps (int): Number of steps in the diffusion process (default: 1000)
+    batch_size (int): Number of images processed in each training batch (default: 32)
+    learning_rate (float): Learning rate for the Adam optimizer (default: 5e-4)
+    num_epochs (int): Number of training epochs (default: 10)
+
+The script follows these main steps:
+1. Compute beta schedule and derived alpha values
+2. Load and prepare MNIST dataset
+3. Initialize noise prediction model
+4. Train the model
+5. Generate and visualize denoised samples
+"""
+
 import torch
 import logging
 from noise import cosine_beta_schedule
@@ -13,7 +37,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Step 1: Set parameters
 num_diffusion_steps = 1000
-batch_size = 32
+batch_size = 64
 learning_rate = 5e-4
 num_epochs = 10
 
