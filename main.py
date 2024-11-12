@@ -33,7 +33,8 @@ beta_scheduler = torch.linspace(0.0001, 0.02, num_timesteps).to(device)
 # Initialize the U-Net model, diffusion model, and loss function
 model = UNet(in_channels=1, out_channels=1, base_channels=64, embedding_dim=128).to(device)
 diffusion = DiffusionModel(model, beta_scheduler, num_timesteps=num_timesteps)
-criterion = ELBOLoss(beta_scheduler).to(device)
+#elboCriterion = ELBOLoss(beta_scheduler).to(device)
+mseCriterion = torch.nn.MSELoss().to(device) # use MSE loss for simplicity
 
 # Define the optimizer
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
@@ -56,7 +57,8 @@ for epoch in range(num_epochs):
         predicted_noise = model(noisy_x, timesteps)
 
         # Compute the loss
-        loss = criterion(predicted_noise, noise, timesteps)
+        #loss = elboCriterion(predicted_noise, noise, timesteps)
+        loss = mseCriterion(predicted_noise, noise)
 
         # Backpropagation and optimization
         optimizer.zero_grad()
@@ -72,20 +74,15 @@ for epoch in range(num_epochs):
 
     # Visualize the denoising process at the end of each epoch
     model.eval()
-    with torch.no_grad():
-        sample_image, _ = next(iter(train_loader))
-        sample_image = sample_image[0:1].to(device)
-        #visualize_denoising_process(diffusion, steps=10, x_shape=sample_image.shape, device=device, epoch=epoch + 1)
+    with torch.no_grad():        
+        # Generate multiple samples and save them in one picture        
+        generated_samples = diffusion.sample(x_shape=(1, 1, 32, 32), device=device)                
+        visualize_denoising_process(generated_samples, epoch)
 
-        # Call the sample function to generate images and save them
-        generated_sample = diffusion.sample(x_shape=(1, 1, 32, 32), device=device)
-        plt.imshow((generated_sample[0].detach().cpu().squeeze() * 0.5 + 0.5).numpy(), cmap='gray')
-        plt.title(f"Generated Sample - Epoch {epoch + 1}")
-        plt.axis('off')
-        os.makedirs("samples/generated_samples", exist_ok=True)
-        plt.savefig(f"samples/generated_samples/sample_epoch_{epoch + 1}.png")
-        plt.close()
+    # Save checkpoint
+    torch.save(model.state_dict(), f"checkpoints/unet_diffusion_model_checkpoint_epoch_{epoch+1}.pth")
+    print(f"Checkpoint saved at epoch: {epoch+1}.")
 
 # Save the trained model
-torch.save(model.state_dict(), "unet_diffusion_model.pth")
+torch.save(model.state_dict(), "checkpoints/unet_diffusion_model.pth")
 print("Training completed and model saved.")

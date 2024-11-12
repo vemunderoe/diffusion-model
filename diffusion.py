@@ -18,10 +18,10 @@ class DiffusionModel:
 
     def sample(self, x_shape, device='cpu'):
         print("Sampling from the diffusion model...")
-        x_t = torch.randn(x_shape).to(device)
-        os.makedirs("visualizations/denoising_steps", exist_ok=True)
+        x_t = torch.randn(x_shape).to(device)        
+        stages = []
 
-        for t in reversed(range(1, self.num_timesteps)):
+        for t in reversed(range(self.num_timesteps)):
             t_tensor = torch.full((x_shape[0],), t, dtype=torch.long).to(device)
 
             noise_pred = self.model(x_t, t_tensor)  # Pass the timestep to the model
@@ -30,7 +30,7 @@ class DiffusionModel:
             alpha_t = self.alpha_scheduler[t].to(device)
             alpha_bar_t = self.alpha_bar_scheduler[t].to(device)
 
-            if t > 1:
+            if t > 0:
                 noise = torch.randn_like(x_t).to(device)
             else:
                 noise = torch.zeros_like(x_t)
@@ -41,11 +41,7 @@ class DiffusionModel:
             ) * (x_t - ((1 - alpha_t) / torch.sqrt(1 - alpha_bar_t)) * noise_pred) + torch.sqrt(beta_t) * noise
 
             # Save intermediate images for inspection
-            if t % (self.num_timesteps // 10) == 0 or t == 1:  # Save at regular intervals and final step
-                plt.imshow((x_t[0].detach().cpu().squeeze() * 0.5 + 0.5).numpy(), cmap='gray')
-                plt.title(f"Denoising Step {t}")
-                plt.axis('off')
-                plt.savefig(f"visualizations/denoising_steps/step_{t}.png")
-                plt.close()
+            if t % (self.num_timesteps // 10) == 0 or t == 0:  # Save at regular intervals and final step                                            
+                stages.append((x_t.clone().detach().cpu(), t))
 
-        return x_t
+        return stages

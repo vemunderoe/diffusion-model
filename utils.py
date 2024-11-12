@@ -30,46 +30,17 @@ def visualize_noising_process(image, diffusion_model, steps=10):
     plt.savefig("visualizations/noising/noising_process.png")
     plt.close()
 
-def visualize_denoising_process(diffusion_model, steps, x_shape, device='cpu', epoch=None):
-    """
-    Visualizes the denoising process in one image with subplots for each step.
-    
-    Args:
-        diffusion_model: The diffusion model to use for denoising.
-        steps: The number of visualization steps.
-        x_shape: The shape of the sample to denoise.
-        device: The device to run the denoising on (e.g., 'cpu' or 'cuda').
-        epoch: The current epoch number (optional, for labeling purposes).
-    """
-    x_t = torch.randn(x_shape).to(device)
-    os.makedirs("visualizations/denoising_steps", exist_ok=True)
-
-    for t in reversed(range(1, diffusion_model.num_timesteps)):
-        t_tensor = torch.full((x_shape[0],), t, dtype=torch.long).to(device)
-
-        noise_pred = diffusion_model.model(x_t, t_tensor)  # Pass the timestep to the model
-
-        beta_t = diffusion_model.beta_scheduler[t].to(device)
-        alpha_t = diffusion_model.alpha_scheduler[t].to(device)
-        alpha_bar_t = diffusion_model.alpha_bar_scheduler[t].to(device)
-
-        if t > 1:
-            noise = torch.randn_like(x_t).to(device)
-        else:
-            noise = torch.zeros_like(x_t)
-
-        # Update x_t for the next step
-        x_t = (
-            1 / torch.sqrt(alpha_t)
-        ) * (x_t - ((1 - alpha_t) / torch.sqrt(1 - alpha_bar_t)) * noise_pred) + torch.sqrt(beta_t) * noise
-
-        # Save intermediate images for inspection
-        if t % (diffusion_model.num_timesteps // 10) == 0 or t == 1:  # Save at regular intervals and final step
-            plt.imshow((x_t[0].detach().cpu().squeeze() * 0.5 + 0.5).numpy(), cmap='gray')
-            plt.title(f"Denoising Step {t}")
-            plt.axis('off')
-            plt.savefig(f"visualizations/denoising/denoising_{t}.png")
-            plt.close()
+def visualize_denoising_process(generated_samples, epoch):
+    fig, axes = plt.subplots(1, 10, figsize=(20, 2))
+    for i, ax in enumerate(axes.flatten()):
+        ax.set_title(f"t={generated_samples[i][1]}")
+        ax.imshow((generated_samples[i][0].detach().cpu().squeeze() * 0.5 + 0.5).numpy(), cmap='gray')
+        ax.axis('off')
+            
+    plt.suptitle(f"Generated Samples - Epoch {epoch + 1}")
+    os.makedirs("samples/generated_samples", exist_ok=True)
+    plt.savefig(f"samples/generated_samples/samples_epoch_{epoch + 1}.png")
+    plt.close()
 
 
 def visualize_feature_maps(feature_maps, num_cols=8):
