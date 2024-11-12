@@ -1,8 +1,11 @@
 # Utility functions for visualization and other supporting functions
 import matplotlib.pyplot as plt
 import torch
+import torch.nn.functional as F
 import os
 import seaborn as sns
+import numpy as np
+from scipy.linalg import sqrtm
 
 def visualize_noising_process(image, diffusion_model, steps=10):
     """
@@ -76,3 +79,48 @@ def visualize_time_embeddings(timesteps, embedding_dim, embedding_function):
     plt.ylabel('Position')
     plt.savefig("visualizations/time_embeddings.png")
     plt.close()
+
+def inception_score(images, classifier, num_splits=10):
+    """
+    Compute the Inception Score (IS) for generated images.
+    Args:
+        images (Tensor): Generated images, shape [num_images, channels, height, width].
+        classifier (nn.Module): Pre-trained classifier that outputs logits or probabilities.
+        num_splits (int): Number of splits for score calculation.
+    Returns:
+        mean (float): Mean of IS scores.
+        std (float): Standard deviation of IS scores.
+    """
+    # Pass images through classifier and get softmax outputs
+    with torch.no_grad():
+        preds = F.softmax(classifier(images), dim=1)
+    
+    split_scores = []
+    for k in range(num_splits):
+        part = preds[k * (len(images) // num_splits): (k + 1) * (len(images) // num_splits), :]
+        kl = part * (torch.log(part) - torch.log(torch.mean(part, dim=0, keepdim=True)))
+        kl = kl.sum(dim=1).mean()
+        split_scores.append(kl.exp())
+
+    return torch.mean(torch.stack(split_scores)).item(), torch.std(torch.stack(split_scores)).item()
+
+def calculate_fid(real_features, fake_features):
+    """
+    Compute the Fréchet Inception Distance (FID) between real and generated images.
+    Args:
+        real_features (np.array): Feature representations from real images, shape [num_images, feature_dim].
+        fake_features (np.array): Feature representations from generated images, shape [num_images, feature_dim].
+    Returns:
+        fid (float): The computed FID score.
+    """
+    mu1, sigma1 = real_features.mean(axis=0), np.cov(real_features, rowvar=False)
+    mu2, sigma2 = fake_features.mean(axis=0), np.cov(fake_features, rowvar=False)
+    
+    diff = mu1 - mu2
+    covmean = sqrtm(sigma1 @ sigma2)
+    if np.iscomplexobj(covmean):
+        covmean = covmean.real
+    
+    fid = diff @ diff + np.trace(sigma1 + sigma2 - 2 * covmean)
+    return fid
+

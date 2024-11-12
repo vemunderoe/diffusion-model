@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import os
 
 # Training parameters
-num_epochs = 30  # You may need to increase this for better results
+num_epochs = 100  # You may need to increase this for better results
 batch_size = 128
 learning_rate = 1e-4
 num_timesteps = 1000
@@ -38,6 +38,8 @@ mseCriterion = torch.nn.MSELoss().to(device) # use MSE loss for simplicity
 
 # Define the optimizer
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
+print(f"Started at: {os.popen('date').read()}")
 
 # Training loop
 for epoch in range(num_epochs):
@@ -80,9 +82,10 @@ for epoch in range(num_epochs):
         visualize_denoising_process(generated_samples, epoch)
 
     # Save checkpoint
-    torch.save(model.state_dict(), f"checkpoints/unet_diffusion_model_checkpoint_epoch_{epoch+1}.pth")
-    print(f"Checkpoint saved at epoch: {epoch+1}.")
+    torch.save(model.state_dict(), f"checkpoints/unet_diffusion_model_checkpoint_epoch_{epoch+1}.pth")    
 
 # Save the trained model
 torch.save(model.state_dict(), "checkpoints/unet_diffusion_model.pth")
 print("Training completed and model saved.")
+
+print(f"Ended at: {os.popen('date').read()}")
