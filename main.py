@@ -13,15 +13,15 @@ import os
 
 # Training parameters
 num_epochs = 100  # You may need to increase this for better results
-batch_size = 128
+batch_size = 256
 learning_rate = 2e-4
 num_timesteps = 1000
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 # Define beta scheduler for the diffusion process (e.g., linear schedule)
 scheduler = BetaScheduler(num_timesteps, device=device)
-#beta_scheduler = scheduler.get_schedule("linear")
-beta_scheduler = scheduler.get_schedule("cosine")
+beta_scheduler = scheduler.get_schedule("linear")
+# beta_scheduler = scheduler.get_schedule("cosine")
 
 # Load the MNIST dataset
 # transform = transforms.Compose([
