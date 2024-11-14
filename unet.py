@@ -83,16 +83,16 @@ class UNet(nn.Module):
 
         # Encoding path
         skip1 = self.enc1(x)
-        self.feature_maps.append(skip1)
         skip1 = skip1 + time_emb1  # Add the time embedding to the first feature map
+        self.feature_maps.append(skip1)
 
         skip2, x = self.enc2(skip1)
-        self.feature_maps.append(skip2)
         skip2 = skip2 + time_emb2  # Add the time embedding to the second feature map
+        self.feature_maps.append(skip2)
 
         skip3, x = self.enc3(x)
-        self.feature_maps.append(skip3)
         skip3 = skip3 + time_emb3  # Add the time embedding to the third feature map
+        self.feature_maps.append(skip3)
 
         # Bottleneck
         x = self.bottleneck(x)

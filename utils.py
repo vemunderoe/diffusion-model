@@ -7,7 +7,11 @@ import seaborn as sns
 import numpy as np
 from scipy.linalg import sqrtm
 
-def visualize_noising_process(image, diffusion_model, steps=10):
+import matplotlib.pyplot as plt
+import os
+import torch
+
+def visualize_noising_process(image, diffusion_model, steps=10, path="visualizations/noising", filename="noising_process", image_title="Noising Process Visualization"):
     """
     Visualizes the noising process by adding noise at different timesteps.
 
@@ -15,35 +19,81 @@ def visualize_noising_process(image, diffusion_model, steps=10):
         image (Tensor): The original image (shape: [1, channels, height, width]).
         diffusion_model (DiffusionModel): The initialized diffusion model.
         steps (int): Number of steps to visualize between timestep 0 and the final timestep.
+        path (str): Path to save the visualization images.
+        filename (str): The filename for the saved visualization.
+        image_title (str): Title for the visualization plot.
     """
-    os.makedirs("visualizations/noising", exist_ok=True)
-    timesteps = torch.linspace(0, diffusion_model.num_timesteps - 1, steps).long()
-    noise = torch.randn_like(image)
+    # Ensure the image is on the same device as the diffusion model
+    device = next(diffusion_model.model.parameters()).device
+    image = image.to(device)
+    noise = torch.randn_like(image).to(device)
+    
+    os.makedirs(path, exist_ok=True)
+    timesteps = torch.linspace(0, diffusion_model.num_timesteps - 1, steps).long().to(device)
 
-    fig, axes = plt.subplots(1, steps, figsize=(15, 5))
+    fig, axes = plt.subplots(1, steps, figsize=(20, 2.5))
     for i, t in enumerate(timesteps):
-        t_tensor = torch.full((image.size(0),), t, dtype=torch.long)
+        t_tensor = torch.full((image.size(0),), t, dtype=torch.long).to(device)
         noisy_image = diffusion_model.add_noise(image, noise, t_tensor)
-        axes[i].imshow((noisy_image[0].squeeze(0).detach().cpu().numpy() * 0.5 + 0.5), cmap='gray')
+        
+        # Detach and move the image to CPU for visualization
+        image_to_display = noisy_image[0].detach().cpu()
+
+        if image_to_display.shape[0] == 3:  # RGB image
+            # Rescale and clamp the image to [0, 1] and permute for display
+            image_to_display = (image_to_display * 0.5 + 0.5).permute(1, 2, 0).clamp(0, 1).numpy()
+            axes[i].imshow(image_to_display)
+        elif image_to_display.shape[0] == 1:  # Grayscale image
+            # Rescale and clamp the image to [0, 1]
+            image_to_display = (image_to_display.squeeze(0) * 0.5 + 0.5).clamp(0, 1).numpy()
+            axes[i].imshow(image_to_display, cmap='gray')
+        else:
+            raise TypeError(f"Invalid shape {image_to_display.shape} for image data")
+
         axes[i].axis('off')
         axes[i].set_title(f"t={t.item()}")
 
-    plt.suptitle("Noising Process Visualization")
+    plt.suptitle(image_title)
     plt.tight_layout()
-    plt.savefig("visualizations/noising/noising_process.png")
+    plt.savefig(f"{path}/{filename}.png")
     plt.close()
 
-def visualize_denoising_process(generated_samples, epoch):
-    fig, axes = plt.subplots(1, 10, figsize=(20, 2))
+
+def visualize_denoising_process(generated_samples, epoch=None, path="samples/generated_samples", filename="samples_epoch", image_title="Denoising Process Visualization"):
+    num_samples = len(generated_samples)
+    fig, axes = plt.subplots(1, num_samples, figsize=(20, 2.5))
+
     for i, ax in enumerate(axes.flatten()):
         ax.set_title(f"t={generated_samples[i][1]}")
-        ax.imshow((generated_samples[i][0].detach().cpu().squeeze() * 0.5 + 0.5).numpy(), cmap='gray')
+        
+        # Detach and move the image to the CPU
+        image = generated_samples[i][0].detach().cpu()
+        
+        # Remove batch dimension if present
+        if image.dim() == 4 and image.shape[0] == 1:
+            image = image.squeeze(0)  # Remove the batch dimension        
+
+        if image.shape[0] == 3:  # RGB image (CIFAR-10)
+            # Rescale and clamp the image to [0, 1] for valid visualization
+            image = (image * 0.5 + 0.5).permute(1, 2, 0).clamp(0, 1).numpy()
+            ax.imshow(image)
+        elif image.shape[0] == 1:  # Grayscale image (MNIST)
+            # Rescale and clamp the image to [0, 1]
+            image = (image.squeeze(0) * 0.5 + 0.5).clamp(0, 1).numpy()
+            ax.imshow(image, cmap='gray')
+        else:
+            raise TypeError(f"Invalid shape {image.shape} for image data")
+
         ax.axis('off')
-            
-    plt.suptitle(f"Generated Samples - Epoch {epoch + 1}")
-    os.makedirs("samples/generated_samples", exist_ok=True)
-    plt.savefig(f"samples/generated_samples/samples_epoch_{epoch + 1}.png")
+        
+    os.makedirs(path, exist_ok=True)
+    if epoch is not None:
+        filename = f"{filename}_{epoch + 1}"
+        image_title = f"{image_title} (Epoch {epoch + 1})"
+    plt.suptitle(image_title)
+    plt.savefig(f"{path}/{filename}.png")
     plt.close()
+
 
 
 def visualize_feature_maps(feature_maps, num_cols=8):
