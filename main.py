@@ -12,51 +12,59 @@ import matplotlib.pyplot as plt
 import os
 
 # Training parameters
-num_epochs = 100  # You may need to increase this for better results
-batch_size = 256
-learning_rate = 2e-4
+num_epochs = 500  # You may need to increase this for better results
+batch_size = 128
+learning_rate = 3e-4
 num_timesteps = 1000
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 # Define beta scheduler for the diffusion process (e.g., linear schedule)
 scheduler = BetaScheduler(num_timesteps, device=device)
-beta_scheduler = scheduler.get_schedule("linear")
-# beta_scheduler = scheduler.get_schedule("cosine")
+#beta_scheduler = scheduler.get_schedule("linear")
+beta_scheduler = scheduler.get_schedule("cosine")
 
 # Load the MNIST dataset
-# transform = transforms.Compose([
-#     transforms.Resize((32, 32)),  # Resize to 32x32
-#     transforms.ToTensor(),
-#     transforms.Normalize((0.5,), (0.5,))  # Normalize to range [-1, 1]
-# ])
-# train_dataset = datasets.MNIST(root='./', train=True, transform=transform, download=True)
-# train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
-# Load the CIFAR-10 dataset
 transform = transforms.Compose([
-    transforms.Resize((32, 32)),  # CIFAR-10 images are already 32x32
+    transforms.Resize((32, 32)),  # Resize to 32x32
     transforms.ToTensor(),
-    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))  # Normalize RGB channels to range [-1, 1]
+    transforms.Normalize((0.5,), (0.5,))  # Normalize to range [-1, 1]
 ])
-train_dataset = datasets.CIFAR10(root='./', train=True, transform=transform, download=True)
+train_dataset = datasets.MNIST(root='./', train=True, transform=transform, download=True)
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
+# Load the CIFAR-10 dataset
+# transform = transforms.Compose([
+#     transforms.Resize((32, 32)),  # CIFAR-10 images are already 32x32
+#     transforms.ToTensor(),
+#     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))  # Normalize RGB channels to range [-1, 1]
+# ])
+# train_dataset = datasets.CIFAR10(root='./data', train=True, transform=transform, download=True)
+# train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
+# Load the CelebA dataset
+# transform = transforms.Compose([    
+#     transforms.Resize((64, 64)),  # Resize to 64x64
+#     transforms.ToTensor(),
+#     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))  # Normalize RGB channels to range [-1, 1]
+# ])
+# train_dataset = datasets.CelebA(root='./data', split="test", transform=transform, download=True)
+# train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
 
 # Initialize the U-Net model, diffusion model, and loss function
-#model = UNet(in_channels=1, out_channels=1, base_channels=64, embedding_dim=128).to(device)
-model = UNet(in_channels=3, out_channels=3, base_channels=64, embedding_dim=128).to(device)
+model = UNet(in_channels=1, out_channels=1, base_channels=64, embedding_dim=128).to(device)
+#model = UNet(in_channels=3, out_channels=3, base_channels=64, embedding_dim=128).to(device)
 diffusion = DiffusionModel(model, beta_scheduler, num_timesteps=num_timesteps)
 #elboCriterion = ELBOLoss(beta_scheduler).to(device)
 mseCriterion = torch.nn.MSELoss().to(device) # use MSE loss for simplicity
 
 # Define the optimizer
-optimizer = optim.Adam(model.parameters(), lr=learning_rate, betas=(0.9, 0.999))
+optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
 print(f"Started at: {os.popen('date').read()}")
 
 #visualize_noising_process(train_dataset[0][0].unsqueeze(0), diffusion, steps=10, path="./", filename="linear_noising", image_title="Linear Noising Visualization")
 visualize_noising_process(train_dataset[0][0].unsqueeze(0), diffusion, steps=10, path="./", filename="cosine_noising", image_title="Cosine Noising Visualization")
 
-os.makedirs("checkpoints/cifar-10", exist_ok=True)
+os.makedirs("checkpoints/mnist-new-unet-cosine", exist_ok=True)
 
 # Training loop
 epoch_avg_losses = []
@@ -97,15 +105,16 @@ for epoch in range(num_epochs):
     model.eval()
     with torch.no_grad():        
         # Generate multiple samples and save them in one picture        
-        #generated_samples = diffusion.sample_ddpm(x_shape=(1, 1, 32, 32), device=device)                
-        generated_samples = diffusion.sample_ddpm(x_shape=(1, 3, 32, 32), device=device)                
-        visualize_denoising_process(generated_samples, epoch=epoch, path="samples/generated_samples/cifar-10", filename="samples_epoch", image_title="Denoising Process Visualization")
+        generated_samples = diffusion.sample_ddpm(x_shape=(1, 1, 32, 32), device=device)                
+        #generated_samples = diffusion.sample_ddpm(x_shape=(1, 3, 32, 32), device=device)                
+        #generated_samples = diffusion.sample_ddpm(x_shape=(1, 3, 64, 64), device=device)                
+        visualize_denoising_process(generated_samples, epoch=epoch, path="samples/generated_samples/mnist-new-unet-cosine", filename="samples_epoch", image_title="Denoising Process Visualization")
 
     # Save checkpoint
-    torch.save(model.state_dict(), f"checkpoints/cifar-10/unet_diffusion_model_checkpoint_epoch_{epoch+1}.pth")    
+    torch.save(model.state_dict(), f"checkpoints/mnist-new-unet-cosine/model_checkpoint_epoch_{epoch+1}.pth")    
 
 # Save the trained model
-torch.save(model.state_dict(), "checkpoints/cifar-10/unet_diffusion_model.pth")
+torch.save(model.state_dict(), "checkpoints/mnist-new-unet-cosine/model.pth")
 print("Training completed and model saved.")
 
 # Save the epoch losses to a file

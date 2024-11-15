@@ -96,20 +96,45 @@ def visualize_denoising_process(generated_samples, epoch=None, path="samples/gen
 
 
 
-def visualize_feature_maps(feature_maps, num_cols=8):
+def visualize_feature_maps(feature_maps, num_cols=8, visualize_rgb=False):
+    """
+    Visualizes the feature maps extracted from the U-Net at different layers.
+
+    Args:
+        feature_maps (list of Tensors): List of feature maps to visualize.
+        num_cols (int): Number of columns for subplot grid.
+        visualize_rgb (bool): If True, combine channels to create RGB-like images.
+    """
     os.makedirs("visualizations/unet", exist_ok=True)
+
     for i, fmap in enumerate(feature_maps):
         num_filters = fmap.size(1)
         fmap = fmap.squeeze(0)  # Remove the batch dimension
 
         num_rows = (num_filters // num_cols) + (num_filters % num_cols != 0)
         fig, axes = plt.subplots(num_rows, num_cols, figsize=(15, num_rows * 2))
-        
+
         for j in range(num_filters):
             ax = axes[j // num_cols, j % num_cols]
-            ax.imshow(fmap[j].detach().cpu().numpy(), cmap='gray')
+
+            feature_map = fmap[j].detach().cpu().numpy()
+
+            # Normalize the feature map for display (min-max scaling to [0, 1])
+            feature_map = (feature_map - feature_map.min()) / (feature_map.max() - feature_map.min() + 1e-5)
+
+            if visualize_rgb and num_filters >= 3 and j % 3 == 0:
+                # Combine three consecutive channels to create an RGB-like visualization
+                rgb_image = np.stack([fmap[j].detach().cpu().numpy(),
+                                      fmap[min(j + 1, num_filters - 1)].detach().cpu().numpy(),
+                                      fmap[min(j + 2, num_filters - 1)].detach().cpu().numpy()], axis=0)
+                rgb_image = (rgb_image - rgb_image.min()) / (rgb_image.max() - rgb_image.min() + 1e-5)
+                ax.imshow(np.transpose(rgb_image, (1, 2, 0)))
+            else:
+                ax.imshow(feature_map, cmap='gray')  # Single-channel feature map
+
             ax.axis('off')
 
+        # Hide unused subplots if the number of feature maps is less than num_cols * num_rows
         for ax in axes.flat[num_filters:]:
             ax.axis('off')
 
@@ -117,6 +142,10 @@ def visualize_feature_maps(feature_maps, num_cols=8):
         plt.tight_layout()
         plt.savefig(f"visualizations/unet/feature_maps_{i + 1}.png")
         plt.close()
+
+
+
+
 
 def visualize_time_embeddings(timesteps, embedding_dim, embedding_function):
     embeddings = embedding_function(timesteps, embedding_dim)
