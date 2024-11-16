@@ -1,6 +1,7 @@
-# diffusion.py
 import torch
 import os
+
+# Ensure the sampling function returns batches with consistent shapes, focusing on batch and channel dimensions
 
 class DiffusionModel:
     def __init__(self, model, beta_scheduler, num_timesteps=1000):
@@ -15,14 +16,19 @@ class DiffusionModel:
         noisy_image = torch.sqrt(alpha_bar_t) * x_start + torch.sqrt(1 - alpha_bar_t) * noise
         return noisy_image
 
-    def sample_ddpm(self, x_shape, device='cpu'):
+    def sample_ddpm(self, x_shape, device='cpu', labels=None, cfg_scale=0.0):
         """Probabilistic sampling method (DDPM-style)."""
         x_t = torch.randn(x_shape).to(device)
         stages = []
 
         for t in reversed(range(self.num_timesteps)):
             t_tensor = torch.full((x_shape[0],), t, dtype=torch.long).to(device)
-            noise_pred = self.model(x_t, t_tensor)
+            
+            # Pass `labels` to the model if conditional sampling is needed
+            noise_pred = self.model(x_t, t_tensor, labels)
+            if cfg_scale > 0:
+                unconditional_noise_pred = self.model(x_t, t_tensor, None)
+                noise_pred = torch.lerp(unconditional_noise_pred, noise_pred, cfg_scale)
 
             beta_t = self.beta_scheduler[t].to(device)
             alpha_t = self.alpha_scheduler[t].to(device)
@@ -37,53 +43,69 @@ class DiffusionModel:
                 1 / torch.sqrt(alpha_t)
             ) * (x_t - ((1 - alpha_t) / torch.sqrt(1 - alpha_bar_t)) * noise_pred) + torch.sqrt(beta_t) * noise
 
+            # Ensure the correct shape of the output to prevent issues downstream
+            if x_t.shape != x_shape:
+                raise ValueError(f"Unexpected shape after update: {x_t.shape}, expected: {x_shape}")
+
             if t % (self.num_timesteps // 10) == 0 or t == 0:
                 stages.append((x_t.clone().detach().cpu(), t))
 
         return stages
-    
-    def sample_ddim(self, x_shape, num_ddim_steps=50, device='cpu'):
-        """Deterministic sampling method (DDIM-style) with adjustable steps."""
-        x_t = torch.randn(x_shape).to(device)
-        stages = []
 
-        # Create a list of timesteps to use for sampling and reverse it
-        timesteps = torch.linspace(
-            0, self.num_timesteps - 1, num_ddim_steps, dtype=torch.float32
-        ).long().to(device)
-        timesteps = timesteps.flip(0)  # Reverse the timesteps
+    def sample_ddim(self, x_shape, device='cpu', labels=None, cfg_scale=1.0, eta=0.0, num_ddim_steps=200):
+        """Deterministic sampling method (DDIM-style) as per the paper."""
+        x_t = torch.randn(x_shape, device=device)
+        stages = []        
 
-        for idx, t in enumerate(timesteps):
-            t = t.item()
-            t_tensor = torch.full((x_shape[0],), t, dtype=torch.long).to(device)
-            noise_pred = self.model(x_t, t_tensor)
-
+        for t in reversed(range(self.num_timesteps)):            
+            t_tensor = torch.full((x_shape[0],), t, dtype=torch.long, device=device)
+            
+            # Predict noise
+            noise_pred = self.model(x_t, t_tensor, labels)
+            if cfg_scale > 0:
+                unconditional_noise_pred = self.model(x_t, t_tensor, None)
+                noise_pred = torch.lerp(unconditional_noise_pred, noise_pred, cfg_scale)
+            
             alpha_t = self.alpha_scheduler[t].to(device)
             alpha_bar_t = self.alpha_bar_scheduler[t].to(device)
+            sqrt_alpha_bar_t = torch.sqrt(alpha_bar_t)
+            sqrt_one_minus_alpha_bar_t = torch.sqrt(1 - alpha_bar_t)
             
-            if idx + 1 < len(timesteps):
-                t_prev = timesteps[idx + 1].item()
-                alpha_bar_t_prev = self.alpha_bar_scheduler[t_prev].to(device)
+            # Estimate x0
+            x0_pred = (x_t - sqrt_one_minus_alpha_bar_t * noise_pred) / sqrt_alpha_bar_t
+            
+            if t > 0:
+                alpha_bar_prev = self.alpha_bar_scheduler[t - 1].to(device)
+                sqrt_alpha_bar_prev = torch.sqrt(alpha_bar_prev)
+                sqrt_one_minus_alpha_bar_prev = torch.sqrt(1 - alpha_bar_prev)
+                
+                # Compute sigma_t
+                sigma_t = eta * torch.sqrt(
+                    (1 - alpha_bar_prev) / (1 - alpha_bar_t)
+                ) * torch.sqrt(1 - alpha_bar_t / alpha_bar_prev)
+                
+                # Compute the direction pointing to x0
+                direction = sqrt_alpha_bar_prev * x0_pred
+                
+                # Compute the orthogonal component
+                orthogonal = torch.sqrt(1 - alpha_bar_prev - sigma_t ** 2) * noise_pred
+                
+                # Generate noise z
+                if eta > 0:
+                    z = torch.randn_like(x_t, device=device)
+                else:
+                    z = torch.zeros_like(x_t, device=device)
+                
+                # Update x_t
+                x_t = direction + orthogonal + sigma_t * z
             else:
-                # At the last timestep, set alpha_bar_t_prev to 1.0
-                alpha_bar_t_prev = torch.tensor(1.0).to(device)
+                x_t = x0_pred
 
-            # Predict x0 from the current x_t and the model's noise prediction
-            x0_pred = (x_t - torch.sqrt(1 - alpha_bar_t) * noise_pred) / torch.sqrt(alpha_bar_t)
+            # Ensure the correct shape of the output to prevent issues downstream
+            if x_t.shape != x_shape:
+                raise ValueError(f"Unexpected shape after update: {x_t.shape}, expected: {x_shape}")
 
-            # Compute the next x_t using the DDIM update rule
-            x_t = (
-                torch.sqrt(alpha_bar_t_prev) * x0_pred
-                + torch.sqrt(1 - alpha_bar_t_prev) * noise_pred
-            )
-
-            # Store intermediate stages
-            if idx % max(1, num_ddim_steps // 10) == 0 or t == 0:
+            if t % (self.num_timesteps // 10) == 0 or t == 0:
                 stages.append((x_t.clone().detach().cpu(), t))
 
         return stages
-
-
-
-
-

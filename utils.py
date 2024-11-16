@@ -105,43 +105,75 @@ def visualize_feature_maps(feature_maps, num_cols=8, visualize_rgb=False):
         num_cols (int): Number of columns for subplot grid.
         visualize_rgb (bool): If True, combine channels to create RGB-like images.
     """
-    os.makedirs("visualizations/unet", exist_ok=True)
+    import numpy as np
+    import os
+    import matplotlib.pyplot as plt
+
+    os.makedirs("unet", exist_ok=True)
 
     for i, fmap in enumerate(feature_maps):
-        num_filters = fmap.size(1)
         fmap = fmap.squeeze(0)  # Remove the batch dimension
+        num_filters = fmap.size(0)  # After squeezing, channels are at dim 0
 
-        num_rows = (num_filters // num_cols) + (num_filters % num_cols != 0)
-        fig, axes = plt.subplots(num_rows, num_cols, figsize=(15, num_rows * 2))
+        if visualize_rgb:
+            num_images = num_filters // 3  # Number of RGB images we can create
+            num_rows = (num_images // num_cols) + (num_images % num_cols != 0)
+            fig, axes = plt.subplots(num_rows, num_cols, figsize=(15, num_rows * 2))
 
-        for j in range(num_filters):
-            ax = axes[j // num_cols, j % num_cols]
-
-            feature_map = fmap[j].detach().cpu().numpy()
-
-            # Normalize the feature map for display (min-max scaling to [0, 1])
-            feature_map = (feature_map - feature_map.min()) / (feature_map.max() - feature_map.min() + 1e-5)
-
-            if visualize_rgb and num_filters >= 3 and j % 3 == 0:
-                # Combine three consecutive channels to create an RGB-like visualization
-                rgb_image = np.stack([fmap[j].detach().cpu().numpy(),
-                                      fmap[min(j + 1, num_filters - 1)].detach().cpu().numpy(),
-                                      fmap[min(j + 2, num_filters - 1)].detach().cpu().numpy()], axis=0)
-                rgb_image = (rgb_image - rgb_image.min()) / (rgb_image.max() - rgb_image.min() + 1e-5)
-                ax.imshow(np.transpose(rgb_image, (1, 2, 0)))
+            # Flatten axes array for easy indexing
+            if isinstance(axes, np.ndarray):
+                axes = axes.flatten()
             else:
-                ax.imshow(feature_map, cmap='gray')  # Single-channel feature map
+                axes = [axes]
 
-            ax.axis('off')
+            for idx in range(num_images):
+                ax = axes[idx]
+                # Get the three channels for the RGB image
+                rgb_channels = fmap[idx * 3:(idx + 1) * 3].detach().cpu().numpy()
 
-        # Hide unused subplots if the number of feature maps is less than num_cols * num_rows
-        for ax in axes.flat[num_filters:]:
-            ax.axis('off')
+                # Ensure we have exactly 3 channels
+                if rgb_channels.shape[0] < 3:
+                    # Not enough channels to form an RGB image
+                    break
+
+                # Normalize the RGB channels
+                rgb_image = (rgb_channels - rgb_channels.min()) / (rgb_channels.max() - rgb_channels.min() + 1e-5)
+                rgb_image = np.transpose(rgb_image, (1, 2, 0))  # Shape: H x W x 3
+
+                ax.imshow(rgb_image)
+                ax.axis('off')
+
+            # Hide any unused subplots
+            for ax in axes[num_images:]:
+                ax.axis('off')
+
+        else:
+            # Visualize each feature map individually in grayscale
+            num_rows = (num_filters // num_cols) + (num_filters % num_cols != 0)
+            fig, axes = plt.subplots(num_rows, num_cols, figsize=(15, num_rows * 2))
+
+            # Flatten axes array for easy indexing
+            if isinstance(axes, np.ndarray):
+                axes = axes.flatten()
+            else:
+                axes = [axes]
+
+            for idx in range(num_filters):
+                ax = axes[idx]
+                feature_map = fmap[idx].detach().cpu().numpy()
+                feature_map = (feature_map - feature_map.min()) / (feature_map.max() - feature_map.min() + 1e-5)
+                ax.imshow(feature_map, cmap='gray')
+                ax.axis('off')
+
+            # Hide any unused subplots
+            for ax in axes[num_filters:]:
+                ax.axis('off')
 
         plt.suptitle(f"Feature Maps at Layer {i + 1}", fontsize=16)
         plt.tight_layout()
-        plt.savefig(f"visualizations/unet/feature_maps_{i + 1}.png")
+        plt.savefig(f"unet/feature_maps_{i + 1}.png")
         plt.close()
+
 
 
 

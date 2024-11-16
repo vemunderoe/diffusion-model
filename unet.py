@@ -8,6 +8,7 @@ from utils import visualize_feature_maps
 import matplotlib.pyplot as plt
 from torchvision import datasets, transforms
 import os
+import numpy as np
 
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels):
@@ -88,7 +89,7 @@ class UpBlock(nn.Module):
         return x
 
 class UNet(nn.Module):
-    def __init__(self, in_channels=3, out_channels=3, base_channels=64, embedding_dim=256):
+    def __init__(self, in_channels=3, out_channels=3, base_channels=64, embedding_dim=128, num_classes=None):
         super(UNet, self).__init__()
         self.time_embedding = SinusoidalTimeEmbedding(embedding_dim)
         self.time_fc1 = nn.Linear(embedding_dim, base_channels)
@@ -112,7 +113,14 @@ class UNet(nn.Module):
         self.final_conv = nn.Conv2d(base_channels, out_channels, kernel_size=1)
         self.feature_maps = []
 
-    def forward(self, x, t):
+        if num_classes is not None:
+            self.label_embedding = nn.Embedding(num_classes, embedding_dim)
+            self.label_emdedding_fc1 = nn.Linear(embedding_dim, base_channels)
+            self.label_emdedding_fc2 = nn.Linear(embedding_dim, base_channels * 2)
+            self.label_emdedding_fc3 = nn.Linear(embedding_dim, base_channels * 4)
+            self.label_emdedding_fc4 = nn.Linear(embedding_dim, base_channels * 8)
+
+    def forward(self, x, t, y=None):
         self.feature_maps.clear()
         # Time embedding
         time_emb = self.time_embedding(t)
@@ -120,6 +128,18 @@ class UNet(nn.Module):
         time_emb2 = self.time_fc2(time_emb).unsqueeze(-1).unsqueeze(-1)
         time_emb3 = self.time_fc3(time_emb).unsqueeze(-1).unsqueeze(-1)
         time_emb4 = self.time_fc4(time_emb).unsqueeze(-1).unsqueeze(-1)
+
+        if y is not None:
+            label_emb = self.label_embedding(y)
+            label_emb = label_emb.view(label_emb.size(0), -1)  # Ensure the label embedding is flat
+            label_emb1 = self.label_emdedding_fc1(label_emb).unsqueeze(-1).unsqueeze(-1)
+            time_emb1 = time_emb1 + label_emb1
+            label_emb2 = self.label_emdedding_fc2(label_emb).unsqueeze(-1).unsqueeze(-1)
+            time_emb2 = time_emb2 + label_emb2
+            label_emb3 = self.label_emdedding_fc3(label_emb).unsqueeze(-1).unsqueeze(-1)
+            time_emb3 = time_emb3 + label_emb3
+            label_emb4 = self.label_emdedding_fc4(label_emb).unsqueeze(-1).unsqueeze(-1)
+            time_emb4 = time_emb4 + label_emb4
 
         # Encoding path
         skip1 = self.enc1(x)
@@ -154,8 +174,8 @@ class UNet(nn.Module):
 
         return self.final_conv(x)
 
+
 # Test the U-Net model
-# Test the U-Net model with CIFAR-10
 if __name__ == "__main__":
     os.makedirs("unet", exist_ok=True)
     
@@ -180,7 +200,7 @@ if __name__ == "__main__":
     plt.close()
 
     # Initialize the model and run the image through it
-    model = UNet(in_channels=3, out_channels=3, base_channels=64, embedding_dim=256)
+    model = UNet(in_channels=3, out_channels=3, base_channels=32, embedding_dim=64)
     
     # Create a timestep tensor to pass to the model
     timestep = torch.tensor([500])  # Arbitrary timestep value for testing
@@ -188,7 +208,7 @@ if __name__ == "__main__":
 
     # Visualize feature maps captured during the forward pass (if integrated)
     # Uncomment if feature map visualization function exists and is integrated
-    visualize_feature_maps(model.feature_maps)
+    visualize_feature_maps(model.feature_maps, visualize_rgb=True)
 
     # Display the output image (rescaled for visualization)
     plt.imshow((output.detach().squeeze(0).permute(1, 2, 0) * 0.5 + 0.5).numpy())  # Rescale to [0, 1] for display
