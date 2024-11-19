@@ -117,8 +117,8 @@ for epoch in range(num_epochs):
         single_label = None
         if labels is not None:
             single_label = labels[0:1]                
-        generated_samples = diffusion.sample_ddpm(x_shape=(1, 1, 32, 32), device=device, labels=single_label)  # MNIST            
-        #generated_samples = diffusion.sample_ddpm(x_shape=(1, 3, 32, 32), device=device, labels=single_label) # CIFAR-10
+        generated_samples = diffusion.sample(x_shape=(1, 1, 32, 32), device=device, labels=single_label)  # MNIST            
+        #generated_samples = diffusion.sample(x_shape=(1, 3, 32, 32), device=device, labels=single_label) # CIFAR-10
         visualize_denoising_process(generated_samples, epoch=epoch, path="generated_samples/mnist-linear", filename="samples_epoch", image_title="Denoising Process Visualization")
 
 
