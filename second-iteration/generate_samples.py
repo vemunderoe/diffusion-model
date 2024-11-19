@@ -12,8 +12,9 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
 # Load the trained U-Net model
-model = UNet(in_channels=1, out_channels=1, base_channels=64, embedding_dim=128).to(device)
-model.load_state_dict(torch.load("checkpoints/mnist-linear/model_epoch_50.pth", map_location=device, weights_only=True))
+#model = UNet(in_channels=1, out_channels=1, base_channels=64, embedding_dim=128).to(device)
+model = UNet(in_channels=3, out_channels=3, base_channels=64, embedding_dim=128).to(device)
+model.load_state_dict(torch.load("checkpoints/cifar-10-linear/model_epoch_201.pth", map_location=device, weights_only=True))
 model.eval()
 
 # Define beta scheduler and diffusion model parameters
@@ -31,7 +32,8 @@ def sample_images(num_samples=100, batch_size=10):
     with torch.no_grad():
         # Generate full batches
         for _ in range(num_full_batches):
-            sample_batch = diffusion.sample(x_shape=(batch_size, 1, 32, 32), device=device)
+            #sample_batch = diffusion.sample(x_shape=(batch_size, 1, 32, 32), device=device)
+            sample_batch = diffusion.sample(x_shape=(batch_size, 3, 32, 32), device=device)
             generated_imgs = sample_batch[-1][0]  # Get the last tensor
             generated_imgs = (generated_imgs + 1) / 2  # Normalize to [0, 1]
             generated_imgs = torch.clamp(generated_imgs, 0, 1)  # Clamp values to [0, 1]
@@ -39,7 +41,8 @@ def sample_images(num_samples=100, batch_size=10):
 
         # Generate the remainder if necessary
         if remainder > 0:
-            sample_batch = diffusion.sample(x_shape=(remainder, 1, 32, 32), device=device)
+            #sample_batch = diffusion.sample(x_shape=(remainder, 1, 32, 32), device=device)
+            sample_batch = diffusion.sample(x_shape=(remainder, 3, 32, 32), device=device)
             generated_imgs = sample_batch[-1][0]
             generated_imgs = (generated_imgs + 1) / 2  # Normalize to [0, 1]
             generated_imgs = torch.clamp(generated_imgs, 0, 1)
@@ -81,7 +84,7 @@ def generate_and_save_denoising_samples(path="generated_samples", filename="deno
     with torch.no_grad():
         # Generate full batches    
         generated_imgs = []    
-        samples = diffusion.sample(x_shape=(1, 1, 32, 32), device=device)
+        samples = diffusion.sample(x_shape=(1, 3, 32, 32), device=device)
         for _, sample in enumerate(samples):            
             generated_img = sample[0]
             generated_img = (generated_img + 1) / 2
@@ -99,10 +102,10 @@ def generate_and_save_denoising_samples(path="generated_samples", filename="deno
 
 # Example usage: Generate 128 images in batches of 32 with a grid layout of 16 x 8
 generate_and_save_samples(num_samples=10, batch_size=10, colons=5, path="generated_samples", filename="5x2.png", save_individual=False)
-#generate_and_save_samples(num_samples=12, batch_size=12, colons=6, path="generated_samples", filename="6x2.png", save_individual=False)
-#generate_and_save_samples(num_samples=16, batch_size=16, colons=8, path="generated_samples", filename="8x2.png", save_individual=False)
-#generate_and_save_samples(num_samples=64, batch_size=32, colons=8, path="generated_samples", filename="8x8.png", save_individual=False)
-#generate_and_save_samples(num_samples=256, batch_size=32, colons=16, path="generated_samples", filename="16x16.png", save_individual=False)
+generate_and_save_samples(num_samples=12, batch_size=12, colons=6, path="generated_samples", filename="6x2.png", save_individual=False)
+generate_and_save_samples(num_samples=16, batch_size=16, colons=8, path="generated_samples", filename="8x2.png", save_individual=False)
+generate_and_save_samples(num_samples=64, batch_size=32, colons=8, path="generated_samples", filename="8x8.png", save_individual=False)
+generate_and_save_samples(num_samples=256, batch_size=32, colons=16, path="generated_samples", filename="16x16.png", save_individual=False)
 generate_and_save_denoising_samples(path="generated_samples")
 
 print("Sample generation completed and images saved.")

@@ -2,3 +2,5 @@
 venv
 .venv
 visualizations
+data
+__pycache__
